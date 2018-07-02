@@ -1,4 +1,4 @@
-(function(){var target = (typeof self === "undefined" || !(typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope)) && ((typeof module !== "undefined" && module.exports) || (typeof window !== "undefined"));if (target) {var __worker_src__ = arguments.callee.toString();var __worker_src_origin__ = typeof document !== "undefined" && document.currentScript ? document.currentScript.src : '';var __worker_src_map__ = 'tangram.debug.js.map';};(function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.Tangram = f()}})(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);var f=new Error("Cannot find module '"+o+"'");throw f.code="MODULE_NOT_FOUND",f}var l=n[o]={exports:{}};t[o][0].call(l.exports,function(e){var n=t[o][1][e];return s(n?n:e)},l,l.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
+(function(){var target = (typeof self === "undefined" || !(typeof WorkerGlobalScope !== "undefined" && self instanceof WorkerGlobalScope)) && ((typeof module !== "undefined" && module.exports) || (typeof window !== "undefined"));if (target) {var __worker_src__ = arguments.callee.toString();var __worker_src_origin__ = typeof document !== "undefined" && document.currentScript ? document.currentScript.src : '';var __worker_src_map__ = 'tangram.debug.js.map';};(function(f){if(typeof exports==="object"&&typeof module!=="undefined"){module.exports=f()}else if(typeof define==="function"&&define.amd){define([],f)}else{var g;if(typeof window!=="undefined"){g=window}else if(typeof global!=="undefined"){g=global}else if(typeof self!=="undefined"){g=self}else{g=this}g.Tangram = f()}})(function(){var define,module,exports;return (function(){function r(e,n,t){function o(i,f){if(!n[i]){if(!e[i]){var c="function"==typeof require&&require;if(!f&&c)return c(i,!0);if(u)return u(i,!0);var a=new Error("Cannot find module '"+i+"'");throw a.code="MODULE_NOT_FOUND",a}var p=n[i]={exports:{}};e[i][0].call(p.exports,function(r){var n=e[i][1][r];return o(n||r)},p,p.exports,r,e,n,t)}return n[i].exports}for(var u="function"==typeof require&&require,i=0;i<t.length;i++)o(t[i]);return o}return r})()({1:[function(_dereq_,module,exports){
 'use strict';
 
 module.exports = Point;
@@ -947,68 +947,102 @@ for (var i = 0, len = code.length; i < len; ++i) {
   revLookup[code.charCodeAt(i)] = i
 }
 
+// Support decoding URL-safe base64 strings, as Node.js does.
+// See: https://en.wikipedia.org/wiki/Base64#URL_applications
 revLookup['-'.charCodeAt(0)] = 62
 revLookup['_'.charCodeAt(0)] = 63
 
-function placeHoldersCount (b64) {
+function getLens (b64) {
   var len = b64.length
+
   if (len % 4 > 0) {
     throw new Error('Invalid string. Length must be a multiple of 4')
   }
 
-  // the number of equal signs (place holders)
-  // if there are two placeholders, than the two characters before it
-  // represent one byte
-  // if there is only one, then the three characters before it represent 2 bytes
-  // this is just a cheap hack to not do indexOf twice
-  return b64[len - 2] === '=' ? 2 : b64[len - 1] === '=' ? 1 : 0
+  // Trim off extra bytes after placeholder bytes are found
+  // See: https://github.com/beatgammit/base64-js/issues/42
+  var validLen = b64.indexOf('=')
+  if (validLen === -1) validLen = len
+
+  var placeHoldersLen = validLen === len
+    ? 0
+    : 4 - (validLen % 4)
+
+  return [validLen, placeHoldersLen]
 }
 
+// base64 is 4/3 + up to two characters of the original data
 function byteLength (b64) {
-  // base64 is 4/3 + up to two characters of the original data
-  return (b64.length * 3 / 4) - placeHoldersCount(b64)
+  var lens = getLens(b64)
+  var validLen = lens[0]
+  var placeHoldersLen = lens[1]
+  return ((validLen + placeHoldersLen) * 3 / 4) - placeHoldersLen
+}
+
+function _byteLength (b64, validLen, placeHoldersLen) {
+  return ((validLen + placeHoldersLen) * 3 / 4) - placeHoldersLen
 }
 
 function toByteArray (b64) {
-  var i, l, tmp, placeHolders, arr
-  var len = b64.length
-  placeHolders = placeHoldersCount(b64)
+  var tmp
+  var lens = getLens(b64)
+  var validLen = lens[0]
+  var placeHoldersLen = lens[1]
 
-  arr = new Arr((len * 3 / 4) - placeHolders)
+  var arr = new Arr(_byteLength(b64, validLen, placeHoldersLen))
+
+  var curByte = 0
 
   // if there are placeholders, only get up to the last complete 4 chars
-  l = placeHolders > 0 ? len - 4 : len
+  var len = placeHoldersLen > 0
+    ? validLen - 4
+    : validLen
 
-  var L = 0
-
-  for (i = 0; i < l; i += 4) {
-    tmp = (revLookup[b64.charCodeAt(i)] << 18) | (revLookup[b64.charCodeAt(i + 1)] << 12) | (revLookup[b64.charCodeAt(i + 2)] << 6) | revLookup[b64.charCodeAt(i + 3)]
-    arr[L++] = (tmp >> 16) & 0xFF
-    arr[L++] = (tmp >> 8) & 0xFF
-    arr[L++] = tmp & 0xFF
+  for (var i = 0; i < len; i += 4) {
+    tmp =
+      (revLookup[b64.charCodeAt(i)] << 18) |
+      (revLookup[b64.charCodeAt(i + 1)] << 12) |
+      (revLookup[b64.charCodeAt(i + 2)] << 6) |
+      revLookup[b64.charCodeAt(i + 3)]
+    arr[curByte++] = (tmp >> 16) & 0xFF
+    arr[curByte++] = (tmp >> 8) & 0xFF
+    arr[curByte++] = tmp & 0xFF
   }
 
-  if (placeHolders === 2) {
-    tmp = (revLookup[b64.charCodeAt(i)] << 2) | (revLookup[b64.charCodeAt(i + 1)] >> 4)
-    arr[L++] = tmp & 0xFF
-  } else if (placeHolders === 1) {
-    tmp = (revLookup[b64.charCodeAt(i)] << 10) | (revLookup[b64.charCodeAt(i + 1)] << 4) | (revLookup[b64.charCodeAt(i + 2)] >> 2)
-    arr[L++] = (tmp >> 8) & 0xFF
-    arr[L++] = tmp & 0xFF
+  if (placeHoldersLen === 2) {
+    tmp =
+      (revLookup[b64.charCodeAt(i)] << 2) |
+      (revLookup[b64.charCodeAt(i + 1)] >> 4)
+    arr[curByte++] = tmp & 0xFF
+  }
+
+  if (placeHoldersLen === 1) {
+    tmp =
+      (revLookup[b64.charCodeAt(i)] << 10) |
+      (revLookup[b64.charCodeAt(i + 1)] << 4) |
+      (revLookup[b64.charCodeAt(i + 2)] >> 2)
+    arr[curByte++] = (tmp >> 8) & 0xFF
+    arr[curByte++] = tmp & 0xFF
   }
 
   return arr
 }
 
 function tripletToBase64 (num) {
-  return lookup[num >> 18 & 0x3F] + lookup[num >> 12 & 0x3F] + lookup[num >> 6 & 0x3F] + lookup[num & 0x3F]
+  return lookup[num >> 18 & 0x3F] +
+    lookup[num >> 12 & 0x3F] +
+    lookup[num >> 6 & 0x3F] +
+    lookup[num & 0x3F]
 }
 
 function encodeChunk (uint8, start, end) {
   var tmp
   var output = []
   for (var i = start; i < end; i += 3) {
-    tmp = (uint8[i] << 16) + (uint8[i + 1] << 8) + (uint8[i + 2])
+    tmp =
+      ((uint8[i] << 16) & 0xFF0000) +
+      ((uint8[i + 1] << 8) & 0xFF00) +
+      (uint8[i + 2] & 0xFF)
     output.push(tripletToBase64(tmp))
   }
   return output.join('')
@@ -1018,30 +1052,33 @@ function fromByteArray (uint8) {
   var tmp
   var len = uint8.length
   var extraBytes = len % 3 // if we have 1 byte left, pad 2 bytes
-  var output = ''
   var parts = []
   var maxChunkLength = 16383 // must be multiple of 3
 
   // go through the array every three bytes, we'll deal with trailing stuff later
   for (var i = 0, len2 = len - extraBytes; i < len2; i += maxChunkLength) {
-    parts.push(encodeChunk(uint8, i, (i + maxChunkLength) > len2 ? len2 : (i + maxChunkLength)))
+    parts.push(encodeChunk(
+      uint8, i, (i + maxChunkLength) > len2 ? len2 : (i + maxChunkLength)
+    ))
   }
 
   // pad the end with zeros, but make sure to not forget the extra bytes
   if (extraBytes === 1) {
     tmp = uint8[len - 1]
-    output += lookup[tmp >> 2]
-    output += lookup[(tmp << 4) & 0x3F]
-    output += '=='
+    parts.push(
+      lookup[tmp >> 2] +
+      lookup[(tmp << 4) & 0x3F] +
+      '=='
+    )
   } else if (extraBytes === 2) {
-    tmp = (uint8[len - 2] << 8) + (uint8[len - 1])
-    output += lookup[tmp >> 10]
-    output += lookup[(tmp >> 4) & 0x3F]
-    output += lookup[(tmp << 2) & 0x3F]
-    output += '='
+    tmp = (uint8[len - 2] << 8) + uint8[len - 1]
+    parts.push(
+      lookup[tmp >> 10] +
+      lookup[(tmp >> 4) & 0x3F] +
+      lookup[(tmp << 2) & 0x3F] +
+      '='
+    )
   }
-
-  parts.push(output)
 
   return parts.join('')
 }
@@ -1104,6 +1141,24 @@ function typedArraySupport () {
   }
 }
 
+Object.defineProperty(Buffer.prototype, 'parent', {
+  get: function () {
+    if (!(this instanceof Buffer)) {
+      return undefined
+    }
+    return this.buffer
+  }
+})
+
+Object.defineProperty(Buffer.prototype, 'offset', {
+  get: function () {
+    if (!(this instanceof Buffer)) {
+      return undefined
+    }
+    return this.byteOffset
+  }
+})
+
 function createBuffer (length) {
   if (length > K_MAX_LENGTH) {
     throw new RangeError('Invalid typed array length')
@@ -1155,7 +1210,7 @@ function from (value, encodingOrOffset, length) {
     throw new TypeError('"value" argument must not be a number')
   }
 
-  if (isArrayBuffer(value)) {
+  if (isArrayBuffer(value) || (value && isArrayBuffer(value.buffer))) {
     return fromArrayBuffer(value, encodingOrOffset, length)
   }
 
@@ -1185,7 +1240,7 @@ Buffer.__proto__ = Uint8Array
 
 function assertSize (size) {
   if (typeof size !== 'number') {
-    throw new TypeError('"size" argument must be a number')
+    throw new TypeError('"size" argument must be of type number')
   } else if (size < 0) {
     throw new RangeError('"size" argument must not be negative')
   }
@@ -1239,7 +1294,7 @@ function fromString (string, encoding) {
   }
 
   if (!Buffer.isEncoding(encoding)) {
-    throw new TypeError('"encoding" must be a valid string encoding')
+    throw new TypeError('Unknown encoding: ' + encoding)
   }
 
   var length = byteLength(string, encoding) | 0
@@ -1268,11 +1323,11 @@ function fromArrayLike (array) {
 
 function fromArrayBuffer (array, byteOffset, length) {
   if (byteOffset < 0 || array.byteLength < byteOffset) {
-    throw new RangeError('\'offset\' is out of bounds')
+    throw new RangeError('"offset" is outside of buffer bounds')
   }
 
   if (array.byteLength < byteOffset + (length || 0)) {
-    throw new RangeError('\'length\' is out of bounds')
+    throw new RangeError('"length" is outside of buffer bounds')
   }
 
   var buf
@@ -1303,7 +1358,7 @@ function fromObject (obj) {
   }
 
   if (obj) {
-    if (isArrayBufferView(obj) || 'length' in obj) {
+    if (ArrayBuffer.isView(obj) || 'length' in obj) {
       if (typeof obj.length !== 'number' || numberIsNaN(obj.length)) {
         return createBuffer(0)
       }
@@ -1315,7 +1370,7 @@ function fromObject (obj) {
     }
   }
 
-  throw new TypeError('First argument must be a string, Buffer, ArrayBuffer, Array, or array-like object.')
+  throw new TypeError('The first argument must be one of type string, Buffer, ArrayBuffer, Array, or Array-like Object.')
 }
 
 function checked (length) {
@@ -1402,6 +1457,9 @@ Buffer.concat = function concat (list, length) {
   var pos = 0
   for (i = 0; i < list.length; ++i) {
     var buf = list[i]
+    if (ArrayBuffer.isView(buf)) {
+      buf = Buffer.from(buf)
+    }
     if (!Buffer.isBuffer(buf)) {
       throw new TypeError('"list" argument must be an Array of Buffers')
     }
@@ -1415,7 +1473,7 @@ function byteLength (string, encoding) {
   if (Buffer.isBuffer(string)) {
     return string.length
   }
-  if (isArrayBufferView(string) || isArrayBuffer(string)) {
+  if (ArrayBuffer.isView(string) || isArrayBuffer(string)) {
     return string.byteLength
   }
   if (typeof string !== 'string') {
@@ -1582,6 +1640,8 @@ Buffer.prototype.toString = function toString () {
   if (arguments.length === 0) return utf8Slice(this, 0, length)
   return slowToString.apply(this, arguments)
 }
+
+Buffer.prototype.toLocaleString = Buffer.prototype.toString
 
 Buffer.prototype.equals = function equals (b) {
   if (!Buffer.isBuffer(b)) throw new TypeError('Argument must be a Buffer')
@@ -1803,9 +1863,7 @@ function hexWrite (buf, string, offset, length) {
     }
   }
 
-  // must be an even number of digits
   var strLen = string.length
-  if (strLen % 2 !== 0) throw new TypeError('Invalid hex string')
 
   if (length > strLen / 2) {
     length = strLen / 2
@@ -2498,6 +2556,7 @@ Buffer.prototype.writeDoubleBE = function writeDoubleBE (value, offset, noAssert
 
 // copy(targetBuffer, targetStart=0, sourceStart=0, sourceEnd=buffer.length)
 Buffer.prototype.copy = function copy (target, targetStart, start, end) {
+  if (!Buffer.isBuffer(target)) throw new TypeError('argument should be a Buffer')
   if (!start) start = 0
   if (!end && end !== 0) end = this.length
   if (targetStart >= target.length) targetStart = target.length
@@ -2512,7 +2571,7 @@ Buffer.prototype.copy = function copy (target, targetStart, start, end) {
   if (targetStart < 0) {
     throw new RangeError('targetStart out of bounds')
   }
-  if (start < 0 || start >= this.length) throw new RangeError('sourceStart out of bounds')
+  if (start < 0 || start >= this.length) throw new RangeError('Index out of range')
   if (end < 0) throw new RangeError('sourceEnd out of bounds')
 
   // Are we oob?
@@ -2522,22 +2581,19 @@ Buffer.prototype.copy = function copy (target, targetStart, start, end) {
   }
 
   var len = end - start
-  var i
 
-  if (this === target && start < targetStart && targetStart < end) {
+  if (this === target && typeof Uint8Array.prototype.copyWithin === 'function') {
+    // Use built-in when available, missing from IE11
+    this.copyWithin(targetStart, start, end)
+  } else if (this === target && start < targetStart && targetStart < end) {
     // descending copy from end
-    for (i = len - 1; i >= 0; --i) {
-      target[i + targetStart] = this[i + start]
-    }
-  } else if (len < 1000) {
-    // ascending copy from start
-    for (i = 0; i < len; ++i) {
+    for (var i = len - 1; i >= 0; --i) {
       target[i + targetStart] = this[i + start]
     }
   } else {
     Uint8Array.prototype.set.call(
       target,
-      this.subarray(start, start + len),
+      this.subarray(start, end),
       targetStart
     )
   }
@@ -2560,17 +2616,19 @@ Buffer.prototype.fill = function fill (val, start, end, encoding) {
       encoding = end
       end = this.length
     }
-    if (val.length === 1) {
-      var code = val.charCodeAt(0)
-      if (code < 256) {
-        val = code
-      }
-    }
     if (encoding !== undefined && typeof encoding !== 'string') {
       throw new TypeError('encoding must be a string')
     }
     if (typeof encoding === 'string' && !Buffer.isEncoding(encoding)) {
       throw new TypeError('Unknown encoding: ' + encoding)
+    }
+    if (val.length === 1) {
+      var code = val.charCodeAt(0)
+      if ((encoding === 'utf8' && code < 128) ||
+          encoding === 'latin1') {
+        // Fast path: If `val` fits into a single byte, use that numeric value.
+        val = code
+      }
     }
   } else if (typeof val === 'number') {
     val = val & 255
@@ -2600,6 +2658,10 @@ Buffer.prototype.fill = function fill (val, start, end, encoding) {
       ? val
       : new Buffer(val, encoding)
     var len = bytes.length
+    if (len === 0) {
+      throw new TypeError('The value "' + val +
+        '" is invalid for argument "value"')
+    }
     for (i = 0; i < end - start; ++i) {
       this[i + start] = bytes[i % len]
     }
@@ -2614,6 +2676,8 @@ Buffer.prototype.fill = function fill (val, start, end, encoding) {
 var INVALID_BASE64_RE = /[^+/0-9A-Za-z-_]/g
 
 function base64clean (str) {
+  // Node takes equal signs as end of the Base64 encoding
+  str = str.split('=')[0]
   // Node strips out invalid characters like \n and \t from the string, base64-js does not
   str = str.trim().replace(INVALID_BASE64_RE, '')
   // Node converts strings with length < 2 to ''
@@ -2753,11 +2817,6 @@ function isArrayBuffer (obj) {
   return obj instanceof ArrayBuffer ||
     (obj != null && obj.constructor != null && obj.constructor.name === 'ArrayBuffer' &&
       typeof obj.byteLength === 'number')
-}
-
-// Node 0.10 supports `ArrayBuffer` but lacks `ArrayBuffer.isView`
-function isArrayBufferView (obj) {
-  return (typeof ArrayBuffer.isView === 'function') && ArrayBuffer.isView(obj)
 }
 
 function numberIsNaN (obj) {
@@ -6538,7 +6597,7 @@ function parseErrors(log) {
 },{}],98:[function(_dereq_,module,exports){
 exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   var e, m
-  var eLen = nBytes * 8 - mLen - 1
+  var eLen = (nBytes * 8) - mLen - 1
   var eMax = (1 << eLen) - 1
   var eBias = eMax >> 1
   var nBits = -7
@@ -6551,12 +6610,12 @@ exports.read = function (buffer, offset, isLE, mLen, nBytes) {
   e = s & ((1 << (-nBits)) - 1)
   s >>= (-nBits)
   nBits += eLen
-  for (; nBits > 0; e = e * 256 + buffer[offset + i], i += d, nBits -= 8) {}
+  for (; nBits > 0; e = (e * 256) + buffer[offset + i], i += d, nBits -= 8) {}
 
   m = e & ((1 << (-nBits)) - 1)
   e >>= (-nBits)
   nBits += mLen
-  for (; nBits > 0; m = m * 256 + buffer[offset + i], i += d, nBits -= 8) {}
+  for (; nBits > 0; m = (m * 256) + buffer[offset + i], i += d, nBits -= 8) {}
 
   if (e === 0) {
     e = 1 - eBias
@@ -6571,7 +6630,7 @@ exports.read = function (buffer, offset, isLE, mLen, nBytes) {
 
 exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
   var e, m, c
-  var eLen = nBytes * 8 - mLen - 1
+  var eLen = (nBytes * 8) - mLen - 1
   var eMax = (1 << eLen) - 1
   var eBias = eMax >> 1
   var rt = (mLen === 23 ? Math.pow(2, -24) - Math.pow(2, -77) : 0)
@@ -6604,7 +6663,7 @@ exports.write = function (buffer, value, offset, isLE, mLen, nBytes) {
       m = 0
       e = eMax
     } else if (e + eBias >= 1) {
-      m = (value * c - 1) * Math.pow(2, mLen)
+      m = ((value * c) - 1) * Math.pow(2, mLen)
       e = e + eBias
     } else {
       m = value * Math.pow(2, eBias - 1) * Math.pow(2, mLen)
@@ -6650,7 +6709,7 @@ if (typeof Object.create === 'function') {
 /*!
  * Determine if an object is a Buffer
  *
- * @author   Feross Aboukhadijeh <feross@feross.org> <http://feross.org>
+ * @author   Feross Aboukhadijeh <https://feross.org>
  * @license  MIT
  */
 
@@ -10064,7 +10123,7 @@ exports.uncompressWorker = function () {
     return new FlateWorker("Inflate", {});
 };
 
-},{"./stream/GenericWorker":155,"./utils":159,"pako":170}],138:[function(_dereq_,module,exports){
+},{"./stream/GenericWorker":155,"./utils":159,"pako":171}],138:[function(_dereq_,module,exports){
 'use strict';
 
 /**
@@ -10318,7 +10377,7 @@ NodejsStreamOutputAdapter.prototype._read = function() {
 
 module.exports = NodejsStreamOutputAdapter;
 
-},{"readable-stream":168,"util":194}],142:[function(_dereq_,module,exports){
+},{"readable-stream":169,"util":194}],142:[function(_dereq_,module,exports){
 (function (Buffer){
 'use strict';
 
@@ -13194,6 +13253,54 @@ for(var i = 0; i < removedMethods.length; i++) {
 module.exports = ZipObject;
 
 },{"./compressedObject":132,"./stream/DataWorker":154,"./stream/GenericWorker":155,"./stream/StreamHelper":156,"./utf8":158}],163:[function(_dereq_,module,exports){
+(function (process){
+'use strict';
+
+if (!process.version ||
+    process.version.indexOf('v0.') === 0 ||
+    process.version.indexOf('v1.') === 0 && process.version.indexOf('v1.8.') !== 0) {
+  module.exports = nextTick;
+} else {
+  module.exports = process.nextTick;
+}
+
+function nextTick(fn, arg1, arg2, arg3) {
+  if (typeof fn !== 'function') {
+    throw new TypeError('"callback" argument must be a function');
+  }
+  var len = arguments.length;
+  var args, i;
+  switch (len) {
+  case 0:
+  case 1:
+    return process.nextTick(fn);
+  case 2:
+    return process.nextTick(function afterTickOne() {
+      fn.call(null, arg1);
+    });
+  case 3:
+    return process.nextTick(function afterTickTwo() {
+      fn.call(null, arg1, arg2);
+    });
+  case 4:
+    return process.nextTick(function afterTickThree() {
+      fn.call(null, arg1, arg2, arg3);
+    });
+  default:
+    args = new Array(len - 1);
+    i = 0;
+    while (i < args.length) {
+      args[i++] = arguments[i];
+    }
+    return process.nextTick(function afterTick() {
+      fn.apply(null, args);
+    });
+  }
+}
+
+}).call(this,_dereq_('_process'))
+
+},{"_process":188}],164:[function(_dereq_,module,exports){
 // a duplex stream is just a stream that is both readable and writable.
 // Since JS doesn't have multiple prototypal inheritance, this class
 // prototypally inherits from Readable, and then parasitically from
@@ -13269,7 +13376,7 @@ function forEach(xs, f) {
     f(xs[i], i);
   }
 }
-},{"./_stream_readable":165,"./_stream_writable":167,"core-util-is":75,"inherits":99,"process-nextick-args":187}],164:[function(_dereq_,module,exports){
+},{"./_stream_readable":166,"./_stream_writable":168,"core-util-is":75,"inherits":99,"process-nextick-args":163}],165:[function(_dereq_,module,exports){
 // a passthrough stream.
 // basically just the most minimal sort of Transform stream.
 // Every written chunk gets output as-is.
@@ -13296,7 +13403,7 @@ function PassThrough(options) {
 PassThrough.prototype._transform = function (chunk, encoding, cb) {
   cb(null, chunk);
 };
-},{"./_stream_transform":166,"core-util-is":75,"inherits":99}],165:[function(_dereq_,module,exports){
+},{"./_stream_transform":167,"core-util-is":75,"inherits":99}],166:[function(_dereq_,module,exports){
 (function (process){
 'use strict';
 
@@ -14180,7 +14287,7 @@ function indexOf(xs, x) {
 }
 }).call(this,_dereq_('_process'))
 
-},{"./_stream_duplex":163,"_process":188,"buffer":10,"core-util-is":75,"events":78,"inherits":99,"isarray":101,"process-nextick-args":187,"string_decoder/":169,"util":9}],166:[function(_dereq_,module,exports){
+},{"./_stream_duplex":164,"_process":188,"buffer":10,"core-util-is":75,"events":78,"inherits":99,"isarray":101,"process-nextick-args":163,"string_decoder/":170,"util":9}],167:[function(_dereq_,module,exports){
 // a transform stream is a readable/writable stream where you do
 // something with the data.  Sometimes it's called a "filter",
 // but that's not a great name for it, since that implies a thing where
@@ -14361,8 +14468,8 @@ function done(stream, er) {
 
   return stream.push(null);
 }
-},{"./_stream_duplex":163,"core-util-is":75,"inherits":99}],167:[function(_dereq_,module,exports){
-(function (process){
+},{"./_stream_duplex":164,"core-util-is":75,"inherits":99}],168:[function(_dereq_,module,exports){
+(function (process,setImmediate){
 // A bit simpler than readable streams.
 // Implement an async ._write(chunk, encoding, cb), and it'll handle all
 // the drain event emission and buffering.
@@ -14879,9 +14986,9 @@ function CorkedRequest(state) {
     }
   };
 }
-}).call(this,_dereq_('_process'))
+}).call(this,_dereq_('_process'),_dereq_("timers").setImmediate)
 
-},{"./_stream_duplex":163,"_process":188,"buffer":10,"core-util-is":75,"events":78,"inherits":99,"process-nextick-args":187,"util-deprecate":191}],168:[function(_dereq_,module,exports){
+},{"./_stream_duplex":164,"_process":188,"buffer":10,"core-util-is":75,"events":78,"inherits":99,"process-nextick-args":163,"timers":190,"util-deprecate":192}],169:[function(_dereq_,module,exports){
 var Stream = (function (){
   try {
     return _dereq_('st' + 'ream'); // hack to fix a circular dependency issue when used with browserify
@@ -14895,7 +15002,7 @@ exports.Duplex = _dereq_('./lib/_stream_duplex.js');
 exports.Transform = _dereq_('./lib/_stream_transform.js');
 exports.PassThrough = _dereq_('./lib/_stream_passthrough.js');
 
-},{"./lib/_stream_duplex.js":163,"./lib/_stream_passthrough.js":164,"./lib/_stream_readable.js":165,"./lib/_stream_transform.js":166,"./lib/_stream_writable.js":167}],169:[function(_dereq_,module,exports){
+},{"./lib/_stream_duplex.js":164,"./lib/_stream_passthrough.js":165,"./lib/_stream_readable.js":166,"./lib/_stream_transform.js":167,"./lib/_stream_writable.js":168}],170:[function(_dereq_,module,exports){
 // Copyright Joyent, Inc. and other Node contributors.
 //
 // Permission is hereby granted, free of charge, to any person obtaining a
@@ -15118,7 +15225,7 @@ function base64DetectIncompleteChar(buffer) {
   this.charLength = this.charReceived ? 3 : 0;
 }
 
-},{"buffer":10}],170:[function(_dereq_,module,exports){
+},{"buffer":10}],171:[function(_dereq_,module,exports){
 // Top level file is just a mixin of submodules & constants
 'use strict';
 
@@ -15134,7 +15241,7 @@ assign(pako, deflate, inflate, constants);
 
 module.exports = pako;
 
-},{"./lib/deflate":171,"./lib/inflate":172,"./lib/utils/common":173,"./lib/zlib/constants":176}],171:[function(_dereq_,module,exports){
+},{"./lib/deflate":172,"./lib/inflate":173,"./lib/utils/common":174,"./lib/zlib/constants":177}],172:[function(_dereq_,module,exports){
 'use strict';
 
 
@@ -15536,7 +15643,7 @@ exports.deflate = deflate;
 exports.deflateRaw = deflateRaw;
 exports.gzip = gzip;
 
-},{"./utils/common":173,"./utils/strings":174,"./zlib/deflate":178,"./zlib/messages":183,"./zlib/zstream":185}],172:[function(_dereq_,module,exports){
+},{"./utils/common":174,"./utils/strings":175,"./zlib/deflate":179,"./zlib/messages":184,"./zlib/zstream":186}],173:[function(_dereq_,module,exports){
 'use strict';
 
 
@@ -15956,7 +16063,7 @@ exports.inflate = inflate;
 exports.inflateRaw = inflateRaw;
 exports.ungzip  = inflate;
 
-},{"./utils/common":173,"./utils/strings":174,"./zlib/constants":176,"./zlib/gzheader":179,"./zlib/inflate":181,"./zlib/messages":183,"./zlib/zstream":185}],173:[function(_dereq_,module,exports){
+},{"./utils/common":174,"./utils/strings":175,"./zlib/constants":177,"./zlib/gzheader":180,"./zlib/inflate":182,"./zlib/messages":184,"./zlib/zstream":186}],174:[function(_dereq_,module,exports){
 'use strict';
 
 
@@ -16063,7 +16170,7 @@ exports.setTyped = function (on) {
 
 exports.setTyped(TYPED_OK);
 
-},{}],174:[function(_dereq_,module,exports){
+},{}],175:[function(_dereq_,module,exports){
 // String encode/decode helpers
 'use strict';
 
@@ -16250,7 +16357,7 @@ exports.utf8border = function (buf, max) {
   return (pos + _utf8len[buf[pos]] > max) ? pos : max;
 };
 
-},{"./common":173}],175:[function(_dereq_,module,exports){
+},{"./common":174}],176:[function(_dereq_,module,exports){
 'use strict';
 
 // Note: adler32 takes 12% for level 0 and 2% for level 6.
@@ -16303,7 +16410,7 @@ function adler32(adler, buf, len, pos) {
 
 module.exports = adler32;
 
-},{}],176:[function(_dereq_,module,exports){
+},{}],177:[function(_dereq_,module,exports){
 'use strict';
 
 // (C) 1995-2013 Jean-loup Gailly and Mark Adler
@@ -16373,7 +16480,7 @@ module.exports = {
   //Z_NULL:                 null // Use -1 or null inline, depending on var type
 };
 
-},{}],177:[function(_dereq_,module,exports){
+},{}],178:[function(_dereq_,module,exports){
 'use strict';
 
 // Note: we can't get significant speed boost here.
@@ -16434,7 +16541,7 @@ function crc32(crc, buf, len, pos) {
 
 module.exports = crc32;
 
-},{}],178:[function(_dereq_,module,exports){
+},{}],179:[function(_dereq_,module,exports){
 'use strict';
 
 // (C) 1995-2013 Jean-loup Gailly and Mark Adler
@@ -18310,7 +18417,7 @@ exports.deflatePrime = deflatePrime;
 exports.deflateTune = deflateTune;
 */
 
-},{"../utils/common":173,"./adler32":175,"./crc32":177,"./messages":183,"./trees":184}],179:[function(_dereq_,module,exports){
+},{"../utils/common":174,"./adler32":176,"./crc32":178,"./messages":184,"./trees":185}],180:[function(_dereq_,module,exports){
 'use strict';
 
 // (C) 1995-2013 Jean-loup Gailly and Mark Adler
@@ -18370,7 +18477,7 @@ function GZheader() {
 
 module.exports = GZheader;
 
-},{}],180:[function(_dereq_,module,exports){
+},{}],181:[function(_dereq_,module,exports){
 'use strict';
 
 // (C) 1995-2013 Jean-loup Gailly and Mark Adler
@@ -18717,7 +18824,7 @@ module.exports = function inflate_fast(strm, start) {
   return;
 };
 
-},{}],181:[function(_dereq_,module,exports){
+},{}],182:[function(_dereq_,module,exports){
 'use strict';
 
 // (C) 1995-2013 Jean-loup Gailly and Mark Adler
@@ -20275,7 +20382,7 @@ exports.inflateSyncPoint = inflateSyncPoint;
 exports.inflateUndermine = inflateUndermine;
 */
 
-},{"../utils/common":173,"./adler32":175,"./crc32":177,"./inffast":180,"./inftrees":182}],182:[function(_dereq_,module,exports){
+},{"../utils/common":174,"./adler32":176,"./crc32":178,"./inffast":181,"./inftrees":183}],183:[function(_dereq_,module,exports){
 'use strict';
 
 // (C) 1995-2013 Jean-loup Gailly and Mark Adler
@@ -20620,7 +20727,7 @@ module.exports = function inflate_table(type, lens, lens_index, codes, table, ta
   return 0;
 };
 
-},{"../utils/common":173}],183:[function(_dereq_,module,exports){
+},{"../utils/common":174}],184:[function(_dereq_,module,exports){
 'use strict';
 
 // (C) 1995-2013 Jean-loup Gailly and Mark Adler
@@ -20654,7 +20761,7 @@ module.exports = {
   '-6':   'incompatible version' /* Z_VERSION_ERROR (-6) */
 };
 
-},{}],184:[function(_dereq_,module,exports){
+},{}],185:[function(_dereq_,module,exports){
 'use strict';
 
 // (C) 1995-2013 Jean-loup Gailly and Mark Adler
@@ -21876,7 +21983,7 @@ exports._tr_flush_block  = _tr_flush_block;
 exports._tr_tally = _tr_tally;
 exports._tr_align = _tr_align;
 
-},{"../utils/common":173}],185:[function(_dereq_,module,exports){
+},{"../utils/common":174}],186:[function(_dereq_,module,exports){
 'use strict';
 
 // (C) 1995-2013 Jean-loup Gailly and Mark Adler
@@ -21925,7 +22032,7 @@ function ZStream() {
 
 module.exports = ZStream;
 
-},{}],186:[function(_dereq_,module,exports){
+},{}],187:[function(_dereq_,module,exports){
 'use strict';
 
 module.exports = Pbf;
@@ -21956,7 +22063,6 @@ Pbf.prototype = {
     // === READING =================================================================
 
     readFields: function(readField, result, end) {
-        // debugger
         end = end || this.length;
 
         while (this.pos < end) {
@@ -22118,8 +22224,6 @@ Pbf.prototype = {
         else if (type === Pbf.Fixed32) this.pos += 4;
         else if (type === Pbf.Fixed64) this.pos += 8;
         else throw new Error('Unimplemented type: ' + type);
-        // else console.log('Unimplemented type: ' + type);
-        // else debugger
     },
 
     // === WRITING =================================================================
@@ -22548,55 +22652,7 @@ function writeUtf8(buf, str, pos) {
     return pos;
 }
 
-},{"ieee754":98}],187:[function(_dereq_,module,exports){
-(function (process){
-'use strict';
-
-if (!process.version ||
-    process.version.indexOf('v0.') === 0 ||
-    process.version.indexOf('v1.') === 0 && process.version.indexOf('v1.8.') !== 0) {
-  module.exports = nextTick;
-} else {
-  module.exports = process.nextTick;
-}
-
-function nextTick(fn, arg1, arg2, arg3) {
-  if (typeof fn !== 'function') {
-    throw new TypeError('"callback" argument must be a function');
-  }
-  var len = arguments.length;
-  var args, i;
-  switch (len) {
-  case 0:
-  case 1:
-    return process.nextTick(fn);
-  case 2:
-    return process.nextTick(function afterTickOne() {
-      fn.call(null, arg1);
-    });
-  case 3:
-    return process.nextTick(function afterTickTwo() {
-      fn.call(null, arg1, arg2);
-    });
-  case 4:
-    return process.nextTick(function afterTickThree() {
-      fn.call(null, arg1, arg2, arg3);
-    });
-  default:
-    args = new Array(len - 1);
-    i = 0;
-    while (i < args.length) {
-      args[i++] = arguments[i];
-    }
-    return process.nextTick(function afterTick() {
-      fn.apply(null, args);
-    });
-  }
-}
-
-}).call(this,_dereq_('_process'))
-
-},{"_process":188}],188:[function(_dereq_,module,exports){
+},{"ieee754":98}],188:[function(_dereq_,module,exports){
 // shim for using process in browser
 var process = module.exports = {};
 
@@ -22858,6 +22914,86 @@ strip.line = function(str, opts) {
 };
 
 },{}],190:[function(_dereq_,module,exports){
+(function (setImmediate,clearImmediate){
+var nextTick = _dereq_('process/browser.js').nextTick;
+var apply = Function.prototype.apply;
+var slice = Array.prototype.slice;
+var immediateIds = {};
+var nextImmediateId = 0;
+
+// DOM APIs, for completeness
+
+exports.setTimeout = function() {
+  return new Timeout(apply.call(setTimeout, window, arguments), clearTimeout);
+};
+exports.setInterval = function() {
+  return new Timeout(apply.call(setInterval, window, arguments), clearInterval);
+};
+exports.clearTimeout =
+exports.clearInterval = function(timeout) { timeout.close(); };
+
+function Timeout(id, clearFn) {
+  this._id = id;
+  this._clearFn = clearFn;
+}
+Timeout.prototype.unref = Timeout.prototype.ref = function() {};
+Timeout.prototype.close = function() {
+  this._clearFn.call(window, this._id);
+};
+
+// Does not start the time, just sets up the members needed.
+exports.enroll = function(item, msecs) {
+  clearTimeout(item._idleTimeoutId);
+  item._idleTimeout = msecs;
+};
+
+exports.unenroll = function(item) {
+  clearTimeout(item._idleTimeoutId);
+  item._idleTimeout = -1;
+};
+
+exports._unrefActive = exports.active = function(item) {
+  clearTimeout(item._idleTimeoutId);
+
+  var msecs = item._idleTimeout;
+  if (msecs >= 0) {
+    item._idleTimeoutId = setTimeout(function onTimeout() {
+      if (item._onTimeout)
+        item._onTimeout();
+    }, msecs);
+  }
+};
+
+// That's not how node.js implements it but the exposed api is the same.
+exports.setImmediate = typeof setImmediate === "function" ? setImmediate : function(fn) {
+  var id = nextImmediateId++;
+  var args = arguments.length < 2 ? false : slice.call(arguments, 1);
+
+  immediateIds[id] = true;
+
+  nextTick(function onNextTick() {
+    if (immediateIds[id]) {
+      // fn.call() is faster so we optimize for the common use-case
+      // @see http://jsperf.com/call-apply-segu
+      if (args) {
+        fn.apply(null, args);
+      } else {
+        fn.call(null);
+      }
+      // Prevent ids from leaking
+      exports.clearImmediate(id);
+    }
+  });
+
+  return id;
+};
+
+exports.clearImmediate = typeof clearImmediate === "function" ? clearImmediate : function(id) {
+  delete immediateIds[id];
+};
+}).call(this,_dereq_("timers").setImmediate,_dereq_("timers").clearImmediate)
+
+},{"process/browser.js":188,"timers":190}],191:[function(_dereq_,module,exports){
 // https://github.com/topojson/topojson-client Version 2.1.0. Copyright 2016 Mike Bostock.
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
@@ -22973,7 +23109,7 @@ Object.defineProperty(exports, '__esModule', { value: true });
 
 })));
 
-},{}],191:[function(_dereq_,module,exports){
+},{}],192:[function(_dereq_,module,exports){
 (function (global){
 
 /**
@@ -23045,9 +23181,7 @@ function config (name) {
 
 }).call(this,typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 
-},{}],192:[function(_dereq_,module,exports){
-arguments[4][99][0].apply(exports,arguments)
-},{"dup":99}],193:[function(_dereq_,module,exports){
+},{}],193:[function(_dereq_,module,exports){
 module.exports = function isBuffer(arg) {
   return arg && typeof arg === 'object'
     && typeof arg.copy === 'function'
@@ -23645,7 +23779,7 @@ function hasOwnProperty(obj, prop) {
 
 }).call(this,_dereq_('_process'),typeof global !== "undefined" ? global : typeof self !== "undefined" ? self : typeof window !== "undefined" ? window : {})
 
-},{"./support/isBuffer":193,"_process":188,"inherits":192}],195:[function(_dereq_,module,exports){
+},{"./support/isBuffer":193,"_process":188,"inherits":99}],195:[function(_dereq_,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -23844,73 +23978,91 @@ function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { de
 
 var up_vec3 = [0, 0, 1];
 
-// Tesselate a flat 2D polygon
-// x & y coordinates will be set as first two elements of provided vertex_template
+/**
+ * To tesselate flat 2D polygons.
+ * The x & y coordinates will be set as first two elements of provided vertex_template.
+ * @param {Array.<Array.<Array.<Array.<number>>>>} polygons The polygons to tesselate.
+ * @param {VertexData} vertex_data The VertexData were to store the results
+ * @param {Array.<number>} vertex_template The vertex template to use
+ * @param {Object} options The texture coordinate options to apply
+ * @return {number} the number of the resulting geometries (triangles)
+ */
 function buildPolygons(polygons, vertex_data, vertex_template, _ref) {
     var texcoord_index = _ref.texcoord_index,
         texcoord_scale = _ref.texcoord_scale,
         texcoord_normalize = _ref.texcoord_normalize;
 
 
-    var vertex_elements = vertex_data.vertex_elements;
+    var vertex_elements = vertex_data.vertex_elements,
+        num_polygons = polygons.length,
+        geom_count = 0,
+        min_u = void 0,
+        min_v = void 0,
+        max_u = void 0,
+        max_v = void 0,
+        min_x = void 0,
+        min_y = void 0,
+        max_x = void 0,
+        max_y = void 0,
+        span_x = void 0,
+        span_y = void 0,
+        scale_u = void 0,
+        scale_v = void 0;
 
     if (texcoord_index) {
         texcoord_normalize = texcoord_normalize || 1;
 
-        var _ref2 = texcoord_scale || _common.default_uvs,
-            _ref3 = _slicedToArray(_ref2, 4),
-            min_u = _ref3[0],
-            min_v = _ref3[1],
-            max_u = _ref3[2],
-            max_v = _ref3[3];
+        var _ref2 = texcoord_scale || _common.default_uvs;
+
+        var _ref3 = _slicedToArray(_ref2, 4);
+
+        min_u = _ref3[0];
+        min_v = _ref3[1];
+        max_u = _ref3[2];
+        max_v = _ref3[3];
     }
 
-    var geom_count = 0;
-    var num_polygons = polygons.length;
     for (var p = 0; p < num_polygons; p++) {
-        var element_offset = vertex_data.vertex_count;
 
-        var polygon = polygons[p];
+        var polygon = polygons[p],
+            element_offset = vertex_data.vertex_count,
+            indices = triangulatePolygon(_earcut2.default.flatten(polygon)),
+            num_indices = indices.length;
 
-        // Find polygon extents to calculate UVs, fit them to the axis-aligned bounding box
-        if (texcoord_index) {
-            var _Geo$findBoundingBox = _geo2.default.findBoundingBox(polygon),
-                _Geo$findBoundingBox2 = _slicedToArray(_Geo$findBoundingBox, 4),
-                min_x = _Geo$findBoundingBox2[0],
-                min_y = _Geo$findBoundingBox2[1],
-                max_x = _Geo$findBoundingBox2[2],
-                max_y = _Geo$findBoundingBox2[3];
+        // The vertices and vertex-elements must not be added if earcut returns no indices:
+        if (num_indices) {
 
-            var span_x = max_x - min_x;
-            var span_y = max_y - min_y;
-            var scale_u = (max_u - min_u) / span_x;
-            var scale_v = (max_v - min_v) / span_y;
-        }
+            // Find polygon extents to calculate UVs, fit them to the axis-aligned bounding box:
+            if (texcoord_index) {
+                var _Geo$findBoundingBox, _Geo$findBoundingBox2;
 
-        for (var ring_index = 0; ring_index < polygon.length; ring_index++) {
-            // Add vertex data
-            var polygon_ring = polygon[ring_index];
-            for (var i = 0; i < polygon_ring.length; i++) {
-                var vertex = polygon_ring[i];
-                vertex_template[0] = vertex[0];
-                vertex_template[1] = vertex[1];
-
-                // Add UVs
-                if (texcoord_index) {
-                    vertex_template[texcoord_index + 0] = ((vertex[0] - min_x) * scale_u + min_u) * texcoord_normalize;
-                    vertex_template[texcoord_index + 1] = ((vertex[1] - min_y) * scale_v + min_v) * texcoord_normalize;
-                }
-
-                vertex_data.addVertex(vertex_template);
+                (_Geo$findBoundingBox = _geo2.default.findBoundingBox(polygon), _Geo$findBoundingBox2 = _slicedToArray(_Geo$findBoundingBox, 4), min_x = _Geo$findBoundingBox2[0], min_y = _Geo$findBoundingBox2[1], max_x = _Geo$findBoundingBox2[2], max_y = _Geo$findBoundingBox2[3], _Geo$findBoundingBox), span_x = max_x - min_x, span_y = max_y - min_y, scale_u = (max_u - min_u) / span_x, scale_v = (max_v - min_v) / span_y;
             }
-        }
 
-        // Add element indices
-        var indices = triangulatePolygon(_earcut2.default.flatten(polygon));
-        for (var _i = 0; _i < indices.length; _i++) {
-            vertex_elements.push(element_offset + indices[_i]);
+            for (var ring_index = 0; ring_index < polygon.length; ring_index++) {
+                // Add vertex data:
+                var polygon_ring = polygon[ring_index];
+                for (var i = 0; i < polygon_ring.length; i++) {
+                    var vertex = polygon_ring[i];
+                    vertex_template[0] = vertex[0];
+                    vertex_template[1] = vertex[1];
+
+                    // Add UVs:
+                    if (texcoord_index) {
+                        vertex_template[texcoord_index + 0] = ((vertex[0] - min_x) * scale_u + min_u) * texcoord_normalize;
+                        vertex_template[texcoord_index + 1] = ((vertex[1] - min_y) * scale_v + min_v) * texcoord_normalize;
+                    }
+
+                    vertex_data.addVertex(vertex_template);
+                }
+            }
+
+            // Add element indices:
+            for (var _i = 0; _i < num_indices; _i++) {
+                vertex_elements.push(element_offset + indices[_i]);
+            }
+            geom_count += num_indices / 3;
         }
-        geom_count += indices.length / 3;
     }
     return geom_count;
 }
@@ -27272,6 +27424,8 @@ Texture.getInfo = function (name) {
                 width: tex.width,
                 height: tex.height,
                 density: tex.density,
+                css_size: [tex.width / tex.density, tex.height / tex.density],
+                aspect: tex.width / tex.height,
                 sprites: tex.sprites,
                 texcoords: tex.texcoords,
                 sizes: tex.sizes,
@@ -30175,6 +30329,13 @@ function leafletLayer(options) {
     return extendLeaflet(options);
 }
 
+// save references to overloaded Leaflet methods
+var originalHandlers = {
+    map: {},
+    scrollWheelZoom: {},
+    doubleClickZoom: {}
+};
+
 function extendLeaflet(options) {
 
     // If LeafletLayer is already defined when this is called just return that immediately
@@ -30327,7 +30488,7 @@ function extendLeaflet(options) {
 
                     _this.updateSize();
                     _this.updateView();
-                    // this.reverseTransform();
+                    _this.reverseTransform();
 
                     _this._updating_tangram = false;
 
@@ -30414,8 +30575,19 @@ function extendLeaflet(options) {
                         map.fire('viewreset'); // keep other leaflet layers in sync
                     }, map.options.wheelDebounceTime * 2);
 
+                    // save reference to overloaded method
+                    if (!originalHandlers.scrollWheelZoom._performZoom) {
+                        originalHandlers.scrollWheelZoom._performZoom = map.scrollWheelZoom._performZoom;
+                    }
+
                     var layer = this;
                     map.scrollWheelZoom._performZoom = function () {
+                        if (this._map !== layer._map) {
+                            // only call overloaded method on a tangram layer
+                            originalHandlers.scrollWheelZoom._performZoom.call(this);
+                            return;
+                        }
+
                         var map = this._map,
                             zoom = map.getZoom();
 
@@ -30498,7 +30670,18 @@ function extendLeaflet(options) {
                         var enabled = map.doubleClickZoom.enabled();
                         map.doubleClickZoom.disable();
 
+                        // save reference to overloaded method
+                        if (!originalHandlers.doubleClickZoom._onDoubleClick) {
+                            originalHandlers.doubleClickZoom._onDoubleClick = map.doubleClickZoom._onDoubleClick;
+                        }
+
                         map.doubleClickZoom._onDoubleClick = function (e) {
+                            if (this._map !== layer._map) {
+                                // only call overloaded method on a tangram layer
+                                originalHandlers.doubleClickZoom._onDoubleClick.call(this, e);
+                                return;
+                            }
+
                             var map = this._map,
                                 oldZoom = map.getZoom(),
                                 delta = map.options.zoomDelta,
@@ -30520,7 +30703,18 @@ function extendLeaflet(options) {
                     // NOTE: this will NOT fire the 'zoomanim' event, so this modification should be disabled for apps that depend on it
                     // See original: https://github.com/Leaflet/Leaflet/blob/cf518ff1a5e0e54a2f63faa144aeaa50888e0bc6/src/map/Map.js#L1610
                     if (map._zoomAnimated) {
+                        // save reference to overloaded method
+                        if (!originalHandlers.map._animateZoom) {
+                            originalHandlers.map._animateZoom = map._animateZoom;
+                        }
+
                         map._animateZoom = function (center, zoom, startAnim, noUpdate) {
+                            if (this !== layer._map) {
+                                // only call overloaded method on a tangram layer
+                                originalHandlers.map._animateZoom.call(this, center, zoom, startAnim, noUpdate);
+                                return;
+                            }
+
                             if (startAnim) {
                                 this._animatingZoom = true;
 
@@ -32449,6 +32643,26 @@ var Scene = function () {
                 geometry = _ref5$geometry === undefined ? false : _ref5$geometry;
 
             filter = _utils2.default.serializeWithFunctions(filter);
+
+            // Optional uniqueify criteria
+            // Valid values: true, false/null, single property name, or array of property names
+            unique = typeof unique === 'string' ? [unique] : unique;
+            var uniqueify = unique && function (obj) {
+                var props = Array.isArray(unique) ? (0, _slice2.default)(obj.properties, unique) : obj.properties;
+                if (geometry) {
+                    // when `geometry` flag is set, we need to uniqueify based on *both* feature properties and geometry
+                    return JSON.stringify({ geometry: obj.geometry, properties: props });
+                }
+                return JSON.stringify(props);
+            };
+
+            // Optional grouping criteria
+            // Valid values: false/null, single property name, or array of property names
+            group_by = (typeof group_by === 'string' || Array.isArray(group_by)) && group_by;
+            var group = group_by && function (obj) {
+                return Array.isArray(group_by) ? JSON.stringify((0, _slice2.default)(obj, group_by)) : obj[group_by];
+            };
+
             var tile_keys = this.tile_manager.getRenderableTiles().map(function (t) {
                 return t.key;
             });
@@ -32456,20 +32670,6 @@ var Scene = function () {
                 var features = [];
                 var keys = {};
                 var groups = {};
-
-                // Optional uniqueify criteria
-                // Valid values: true, false/null, single property name, or array of property names
-                unique = typeof unique === 'string' ? [unique] : unique;
-                var uniqueify = unique && function (obj) {
-                    return JSON.stringify(Array.isArray(unique) ? (0, _slice2.default)(obj, unique) : obj);
-                };
-
-                // Optional grouping criteria
-                // Valid values: false/null, single property name, or array of property names
-                group_by = (typeof group_by === 'string' || Array.isArray(group_by)) && group_by;
-                var group = group_by && function (obj) {
-                    return Array.isArray(group_by) ? JSON.stringify((0, _slice2.default)(obj, group_by)) : obj[group_by];
-                };
 
                 results.forEach(function (r) {
                     return r.forEach(function (feature) {
@@ -35904,7 +36104,7 @@ function decodeMultiPolygon(geom) {
 
 _data_source2.default.register(MVTSource, 'MVT');
 
-},{"../geo":200,"./data_source":231,"@mapbox/vector-tile":2,"pbf":186}],234:[function(_dereq_,module,exports){
+},{"../geo":200,"./data_source":231,"@mapbox/vector-tile":2,"pbf":187}],234:[function(_dereq_,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -36130,7 +36330,7 @@ var TopoJSONTileSource = exports.TopoJSONTileSource = function (_GeoJSONTileSour
 
 _data_source2.default.register(TopoJSONTileSource, 'TopoJSON'); // prefered shorter name
 
-},{"./data_source":231,"./geojson":232,"topojson-client":190}],236:[function(_dereq_,module,exports){
+},{"./data_source":231,"./geojson":232,"topojson-client":191}],236:[function(_dereq_,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -37748,25 +37948,37 @@ Object.assign(Points, {
             return;
         }
 
-        // optional sprite
+        // optional sprite and texture
         var sprite_info = void 0;
         if (this.hasSprites(style)) {
+            // populate sprite_info object with used sprites
             sprite_info = this.parseSprite(style, draw, context);
+
             if (sprite_info) {
                 style.texcoords = sprite_info.texcoords;
             } else {
+                // sprites are defined in the style's texture, but none are used in the current layer
+                (0, _log2.default)({ level: 'warn', once: true }, 'Layer \'' + draw.layers[draw.layers.length - 1] + '\' uses a texture \'' + style.texture + '\' with defined sprites, but no sprite is specified. Skipping features in layer');
                 return;
             }
+        } else if (draw.sprite) {
+            // sprite specified in the draw layer but no sprites defined in the texture
+            (0, _log2.default)({ level: 'warn', once: true }, 'Layer \'' + draw.layers[draw.layers.length - 1] + '\': ' + ('a sprite \'' + draw.sprite + '\' is specified but no sprites are defined in texture \'' + draw.texture + '\', skipping features in layer'));
+            return;
         }
 
         // point size defined explicitly, or defaults to sprite size, or generic fallback
         style.size = draw.size;
         if (!style.size) {
+            // a 'size' property has not been set in the draw layer -
+            // use the sprite size if it exists and a generic fallback if it doesn't
             style.size = sprite_info && sprite_info.css_size || [DEFAULT_POINT_SIZE, DEFAULT_POINT_SIZE];
         } else {
-            style.size = _style_parser2.default.evalCachedPointSizeProperty(draw.size, sprite_info, context);
+            // check for a cached size, passing the texture and any sprite references
+            style.size = _style_parser2.default.evalCachedPointSizeProperty(draw.size, sprite_info, _texture2.default.textures[style.texture], context);
             if (style.size == null) {
-                (0, _log2.default)({ level: 'warn', once: true }, 'Layer \'' + draw.layers[draw.layers.length - 1] + '\': ' + ('\'size\' includes % and/or ratio-based scaling (' + JSON.stringify(draw.size.value) + '); ') + 'these can only applied to sprites, but no sprite was specified, skipping features in layer');
+                // the StyleParser couldn't evaluate a sprite size
+                (0, _log2.default)({ level: 'warn', once: true }, 'Layer \'' + draw.layers[draw.layers.length - 1] + '\': ' + ('\'size\' (' + JSON.stringify(draw.size.value) + ') couldn\'t be interpreted, skipping features in layer'));
                 return;
             } else if (typeof style.size === 'number') {
                 style.size = [style.size, style.size]; // convert 1d size to 2d
@@ -37841,10 +38053,13 @@ Object.assign(Points, {
     hasSprites: function hasSprites(style) {
         return style.texture && _texture2.default.textures[style.texture] && _texture2.default.textures[style.texture].sprites;
     },
+
+
+    // Generate a sprite_info object
     getSpriteInfo: function getSpriteInfo(style, sprite) {
         var info = _texture2.default.textures[style.texture].sprites[sprite] && _texture2.default.getSpriteInfo(style.texture, sprite);
         if (sprite && !info) {
-            // track misisng sprites (per texture)
+            // track missing sprites (per texture)
             this.texture_missing_sprites[style.texture] = this.texture_missing_sprites[style.texture] || {};
             if (!this.texture_missing_sprites[style.texture][sprite]) {
                 // only log each missing sprite once
@@ -37856,7 +38071,11 @@ Object.assign(Points, {
         }
         return info;
     },
+
+
+    // Check a sprite name against available sprites and return a sprite_info object
     parseSprite: function parseSprite(style, draw, context) {
+        // check for functions
         var sprite = _style_parser2.default.evalProperty(draw.sprite, context);
         var sprite_info = this.getSpriteInfo(style, sprite) || this.getSpriteInfo(style, draw.sprite_default);
         return sprite_info;
@@ -38309,6 +38528,8 @@ Object.assign(Points, {
         // track label mesh buffer data
         var linked = style.linked && style.linked.label.id;
         this.trackLabel(label, linked, mesh, geom_count, context);
+
+        return geom_count;
     },
     buildCurvedLabel: function buildCurvedLabel(label, style, mesh, context) {
         var vertex_template = this.makeVertexTemplate(style, mesh);
@@ -40035,6 +40256,10 @@ var _geo = _dereq_('../geo');
 
 var _geo2 = _interopRequireDefault(_geo);
 
+var _log = _dereq_('../utils/log');
+
+var _log2 = _interopRequireDefault(_log);
+
 var _csscolorparser = _dereq_('csscolorparser');
 
 var _csscolorparser2 = _interopRequireDefault(_csscolorparser);
@@ -40157,7 +40382,7 @@ StyleParser.createPropertyCache = function (obj) {
         c.type = CACHE_TYPE.DYNAMIC;
     }
 
-    // apply optional transform function
+    // apply optional transform function - usually a parsing function
     if (typeof transform === 'function') {
         if (c.zoom) {
             // apply to each zoom stop value
@@ -40166,7 +40391,7 @@ StyleParser.createPropertyCache = function (obj) {
             });
         } else if (typeof c.value !== 'function') {
             // don't transform functions
-            c.value = transform(c.value, 0); // single value
+            c.value = transform(c.value, 0); // single value, 0 = the first and only item in the array
         }
     }
 
@@ -40187,8 +40412,8 @@ StyleParser.createColorPropertyCache = function (obj) {
     });
 };
 
-// Caching for point sizes, which include optional %-based or aspect-ratio-constrained scaling from sprite size
-// Returns a cache object if successful, or throws error message
+// Parse point sizes, which include optional %-based or aspect-ratio-constrained scaling from sprite size
+// Returns a cache object if successful, otherwise throws error message
 var isPercent = function isPercent(v) {
     return typeof v === 'string' && v[v.length - 1] === '%';
 }; // size computed by %
@@ -40200,6 +40425,7 @@ var isComputed = function isComputed(v) {
 };
 var dualRatioError = '\'size\' can specify either width or height as derived from aspect ratio, but not both';
 StyleParser.createPointSizePropertyCache = function (obj) {
+    // obj is the value to be parsed eg "64px" "100%" "auto"
     // mimics the structure of the size value (at each zoom stop if applicable),
     // stores flags indicating if each element is a %-based size or not, or derived from aspect
     var has_pct = null;
@@ -40249,6 +40475,9 @@ StyleParser.createPointSizePropertyCache = function (obj) {
 
     if (!has_pct) {
         // no percentage-based calculation, one cache for all sprites
+        if (obj === "auto") {
+            throw 'this value only allowed as half of an array, eg [16px, auto]:';
+        }
         obj = StyleParser.createPropertyCache(obj, parsePositiveNumber);
     } else {
         // per-sprite based evaluation
@@ -40261,51 +40490,60 @@ StyleParser.createPointSizePropertyCache = function (obj) {
     return obj;
 };
 
-StyleParser.evalCachedPointSizeProperty = function (val, sprite_info, context) {
+StyleParser.evalCachedPointSizeProperty = function (val, sprite_info, texture_info, context) {
     // no percentage-based calculation, one cache for all sprites
     if (!val.has_pct && !val.has_ratio) {
         return StyleParser.evalCachedProperty(val, context);
     }
 
-    // per-sprite based evaluation
-    if (!sprite_info) {
-        return; // trying to apply percentage or ratio sizing to a sprite
-    }
+    var the_image = sprite_info ? sprite_info : texture_info;
 
-    // cache sizes per sprite
-    if (!val.sprites[sprite_info.sprite]) {
-        val.sprites[sprite_info.sprite] = StyleParser.createPropertyCache(val.value, function (v, i) {
-            if (Array.isArray(v)) {
-                // 2D size
-                // either width or height or both could be a %
-                v = v.map(function (c, j) {
-                    return val.has_ratio[i][j] ? c : parsePositiveNumber(c);
-                }). // convert non-ratio values to px
-                map(function (c, j) {
-                    return val.has_pct[i][j] ? sprite_info.css_size[j] * c / 100 : c;
-                }); // apply % scaling as needed
+    // this function is passed to createPropertyCache as the transform function -
+    // when val.value is an array, it is used inside a map(), which is where i is used
+    function evalValue(v, i) {
+        if (Array.isArray(v)) {
+            // 2D size
+            // either width or height or both could be a %
+            v = v.map(function (c, j) {
+                return val.has_ratio[i][j] ? c : parsePositiveNumber(c);
+            }). // convert non-ratio values to px
+            map(function (c, j) {
+                return val.has_pct[i][j] ? the_image.css_size[j] * c / 100 : c;
+            }); // apply % scaling as needed
 
-                // either width or height could be a ratio
-                if (val.has_ratio[i][0]) {
-                    v[0] = v[1] * sprite_info.aspect;
-                } else if (val.has_ratio[i][1]) {
-                    v[1] = v[0] / sprite_info.aspect;
-                }
-            } else {
-                // 1D size
-                v = parsePositiveNumber(v);
-                if (val.has_pct[i]) {
-                    v = sprite_info.css_size.map(function (c) {
-                        return c * v / 100;
-                    }); // set size as % of sprite
-                } else {
-                    v = [v, v]; // expand 1D size to 2D
-                }
+            // either width or height could be a ratio
+            if (val.has_ratio[i][0]) {
+                v[0] = v[1] * the_image.aspect;
+            } else if (val.has_ratio[i][1]) {
+                v[1] = v[0] / the_image.aspect;
             }
-            return v;
-        });
+        } else {
+            // 1D size
+            v = parsePositiveNumber(v);
+            if (val.has_pct[i]) {
+                v = the_image.css_size.map(function (c) {
+                    return c * v / 100;
+                }); // set size as % of image
+            } else {
+                v = [v, v]; // expand 1D size to 2D
+            }
+        }
+        return v;
     }
-    return StyleParser.evalCachedProperty(val.sprites[sprite_info.sprite], context);
+    // texture-based evaluation
+    if (!sprite_info) {
+        // apply percentage or ratio sizing to a texture
+        var textureSizeCache = StyleParser.createPropertyCache(val.value, evalValue);
+
+        return StyleParser.evalCachedProperty(textureSizeCache, context);
+    } else {
+        // per-sprite based evaluation
+        // cache sizes per sprite
+        if (!val.sprites[sprite_info.sprite]) {
+            val.sprites[sprite_info.sprite] = StyleParser.createPropertyCache(val.value, evalValue);
+        }
+        return StyleParser.evalCachedProperty(val.sprites[sprite_info.sprite], context);
+    }
 };
 
 // Interpolation and caching for a generic property (not a color or distance)
@@ -40577,12 +40815,16 @@ StyleParser.calculateOrder = function (order, context) {
 // Evaluate a function-based property, or pass-through static value
 StyleParser.evalProperty = function (prop, context) {
     if (typeof prop === 'function') {
-        return prop(context);
+        try {
+            return prop(context);
+        } catch (e) {
+            (0, _log2.default)('warn', e);
+        }
     }
     return prop;
 };
 
-},{"../geo":200,"../utils/utils":269,"csscolorparser":76}],246:[function(_dereq_,module,exports){
+},{"../geo":200,"../utils/log":259,"../utils/utils":269,"csscolorparser":76}],246:[function(_dereq_,module,exports){
 'use strict';
 
 Object.defineProperty(exports, "__esModule", {
@@ -43583,7 +43825,7 @@ var TileManager = function () {
             style_counts: [],
             pending_label_style_counts: [],
             zoom: null,
-            zoom_steps: 2
+            zoom_steps: 3 // divisions per zoom at which labels are re-collided (e.g. 0, 0.33, 0.66)
         };
 
         // Provide a hook for this object to be called from worker threads
@@ -45869,7 +46111,7 @@ Object.defineProperty(exports, "__esModule", {
   value: true
 });
 
-var pkg = JSON.parse("{\n  \"name\": \"tangram\",\n  \"version\": \"0.15.1\",\n  \"description\": \"WebGL Maps for Vector Tiles\",\n  \"repository\": {\n    \"type\": \"git\",\n    \"url\": \"git://github.com/tangrams/tangram.git\"\n  },\n  \"main\": \"dist/tangram.min.js\",\n  \"homepage\": \"https://github.com/tangrams/tangram\",\n  \"keywords\": [\n    \"maps\",\n    \"graphics\",\n    \"rendering\",\n    \"visualization\",\n    \"WebGL\",\n    \"OpenStreetMap\"\n  ],\n  \"config\": {\n    \"output\": \"\",\n    \"output_map\": \"\"\n  },\n  \"engines\": {\n    \"npm\": \">=2.0.0\"\n  },\n  \"scripts\": {\n    \"start\": \"npm run watch\",\n    \"test\": \"npm run lint && npm run build-bundle && npm run test-local\",\n    \"test-ci\": \"npm run lint && npm run build-bundle && npm run test-remote\",\n    \"test-remote\": \"./node_modules/karma/bin/karma start --browsers SL_Firefox --single-run\",\n    \"test-local\": \"./node_modules/karma/bin/karma start --browsers Chrome --single-run\",\n    \"karma-start\": \"./node_modules/karma/bin/karma start --browsers Chrome --no-watch\",\n    \"karma-run\": \"./node_modules/karma/bin/karma run --browsers Chrome\",\n    \"lint\": \"./node_modules/.bin/jshint src/ && jshint test/\",\n    \"build\": \"npm run build-bundle && npm run build-minify\",\n    \"build-bundle\": \"./node_modules/.bin/browserify src/module.js -t [ babelify --presets [ es2015 ] ] -t brfs --debug -s Tangram -p browserify-derequire -p [ ./build/quine.js tangram.debug.js.map ] -p [ mapstraction ./dist/tangram.debug.js.map ] -o ./dist/tangram.debug.js\",\n    \"build-minify\": \"./node_modules/.bin/uglifyjs dist/tangram.debug.js -c warnings=false -m | sed -e 's/tangram.debug.js.map//g' > dist/tangram.min.js && npm run build-size\",\n    \"build-size\": \"gzip dist/tangram.min.js -c | wc -c | awk '{kb=$1/1024; print kb}' OFMT='%.0fk minified+gzipped'\",\n    \"watch\": \"./node_modules/.bin/budo src/module.js:dist/tangram.debug.js --port 8000 --cors --live -- -t [ babelify --presets [ es2015 ] ] -t brfs -s Tangram -p [ ./build/quine.js tangram.debug.temp.js.map ] -p [ mapstraction ./dist/tangram.debug.temp.js.map ]\"\n  },\n  \"files\": [\n    \"src/*\",\n    \"dist/tangram.debug.js\",\n    \"dist/tangram.debug.js.map\",\n    \"dist/tangram.min.js\"\n  ],\n  \"author\": {\n    \"name\": \"Tangram contributors\"\n  },\n  \"contributors\": [\n    {\n      \"name\": \"Brett Camper\"\n    },\n    {\n      \"name\": \"Peter Richardson\"\n    },\n    {\n      \"name\": \"Patricio Gonzalez Vivo\"\n    },\n    {\n      \"name\": \"Karim Naaji\"\n    },\n    {\n      \"name\": \"Ivan Willig\"\n    },\n    {\n      \"name\": \"Lou Huang\"\n    },\n    {\n      \"name\": \"David Valdman\"\n    },\n    {\n      \"name\": \"Nick Doiron\"\n    },\n    {\n      \"name\": \"Francisco López\"\n    },\n    {\n      \"name\": \"David Manzanares\"\n    }\n  ],\n  \"license\": \"MIT\",\n  \"dependencies\": {\n    \"@mapbox/vector-tile\": \"1.3.0\",\n    \"brfs\": \"1.4.3\",\n    \"csscolorparser\": \"1.0.3\",\n    \"earcut\": \"2.1.1\",\n    \"fontfaceobserver\": \"2.0.7\",\n    \"geojson-vt\": \"2.4.0\",\n    \"gl-mat3\": \"1.0.0\",\n    \"gl-mat4\": \"1.1.4\",\n    \"gl-shader-errors\": \"1.0.3\",\n    \"js-yaml\": \"tangrams/js-yaml#read-only\",\n    \"jszip\": \"tangrams/jszip#read-only\",\n    \"pbf\": \"3.1.0\",\n    \"strip-comments\": \"0.3.2\",\n    \"topojson-client\": \"tangrams/topojson-client#read-only\"\n  },\n  \"devDependencies\": {\n    \"babelify\": \"7.3.0\",\n    \"babel-preset-es2015\": \"6.16.0\",\n    \"browserify\": \"14.4.0\",\n    \"browserify-derequire\": \"0.9.4\",\n    \"budo\": \"10.0.3\",\n    \"chai\": \"1.9.2\",\n    \"chai-as-promised\": \"4.1.1\",\n    \"core-js\": \"2.4.1\",\n    \"glob\": \"4.0.6\",\n    \"jshint\": \"2.9.4\",\n    \"karma\": \"1.5.0\",\n    \"karma-browserify\": \"5.1.1\",\n    \"karma-chrome-launcher\": \"2.0.0\",\n    \"karma-mocha\": \"0.1.9\",\n    \"karma-mocha-reporter\": \"1.0.0\",\n    \"karma-sauce-launcher\": \"tangrams/karma-sauce-launcher#firefox-profiles2\",\n    \"karma-sinon\": \"1.0.4\",\n    \"mapstraction\": \"1.0.1\",\n    \"mocha\": \"1.21.4\",\n    \"sinon\": \"1.10.3\",\n    \"through2\": \"2.0.3\",\n    \"uglify-js\": \"2.8.29\",\n    \"yargs\": \"1.3.2\"\n  }\n}\n");
+var pkg = JSON.parse("{\n  \"name\": \"tangram\",\n  \"version\": \"0.15.1\",\n  \"description\": \"WebGL Maps for Vector Tiles\",\n  \"repository\": {\n    \"type\": \"git\",\n    \"url\": \"git://github.com/tangrams/tangram.git\"\n  },\n  \"main\": \"dist/tangram.min.js\",\n  \"homepage\": \"https://github.com/tangrams/tangram\",\n  \"keywords\": [\n    \"maps\",\n    \"graphics\",\n    \"rendering\",\n    \"visualization\",\n    \"WebGL\",\n    \"OpenStreetMap\"\n  ],\n  \"config\": {\n    \"output\": \"\",\n    \"output_map\": \"\"\n  },\n  \"engines\": {\n    \"npm\": \">=2.0.0\"\n  },\n  \"scripts\": {\n    \"start\": \"npm run watch\",\n    \"test\": \"npm run lint && npm run build-bundle && npm run test-local\",\n    \"test-ci\": \"npm run lint && npm run build-bundle && npm run test-remote\",\n    \"test-remote\": \"./node_modules/karma/bin/karma start --browsers SL_Firefox --single-run\",\n    \"test-local\": \"./node_modules/karma/bin/karma start --browsers Chrome --single-run\",\n    \"karma-start\": \"./node_modules/karma/bin/karma start --browsers Chrome --no-watch\",\n    \"karma-run\": \"./node_modules/karma/bin/karma run --browsers Chrome\",\n    \"lint\": \"./node_modules/.bin/jshint src/ && jshint test/\",\n    \"build\": \"npm run build-bundle && npm run build-minify\",\n    \"build-bundle\": \"./node_modules/.bin/browserify src/module.js -t [ babelify --presets [ es2015 ] ] -t brfs --debug -s Tangram -p browserify-derequire -p [ ./build/quine.js tangram.debug.js.map ] -p [ mapstraction ./dist/tangram.debug.js.map ] -o ./dist/tangram.debug.js\",\n    \"build-minify\": \"./node_modules/.bin/uglifyjs dist/tangram.debug.js -c warnings=false -m | sed -e 's/tangram.debug.js.map//g' > dist/tangram.min.js && npm run build-size\",\n    \"build-size\": \"gzip dist/tangram.min.js -c | wc -c | awk '{kb=$1/1024; print kb}' OFMT='%.0fk minified+gzipped'\",\n    \"watch\": \"./node_modules/.bin/budo src/module.js:dist/tangram.debug.js --port 8000 --cors --live -- -t [ babelify --presets [ es2015 ] ] -t brfs -s Tangram -p [ ./build/quine.js tangram.debug.temp.js.map ] -p [ mapstraction ./dist/tangram.debug.temp.js.map ]\"\n  },\n  \"files\": [\n    \"src/*\",\n    \"dist/tangram.debug.js\",\n    \"dist/tangram.debug.js.map\",\n    \"dist/tangram.min.js\"\n  ],\n  \"author\": {\n    \"name\": \"Tangram contributors\"\n  },\n  \"contributors\": [\n    {\n      \"name\": \"Brett Camper\"\n    },\n    {\n      \"name\": \"Peter Richardson\"\n    },\n    {\n      \"name\": \"Patricio Gonzalez Vivo\"\n    },\n    {\n      \"name\": \"Karim Naaji\"\n    },\n    {\n      \"name\": \"Ivan Willig\"\n    },\n    {\n      \"name\": \"Lou Huang\"\n    },\n    {\n      \"name\": \"David Valdman\"\n    },\n    {\n      \"name\": \"Nick Doiron\"\n    },\n    {\n      \"name\": \"Francisco López\"\n    },\n    {\n      \"name\": \"David Manzanares\"\n    }\n  ],\n  \"license\": \"MIT\",\n  \"dependencies\": {\n    \"@mapbox/vector-tile\": \"1.3.0\",\n    \"brfs\": \"1.4.3\",\n    \"csscolorparser\": \"1.0.3\",\n    \"earcut\": \"2.1.1\",\n    \"fontfaceobserver\": \"2.0.7\",\n    \"geojson-vt\": \"2.4.0\",\n    \"gl-mat3\": \"1.0.0\",\n    \"gl-mat4\": \"1.1.4\",\n    \"gl-shader-errors\": \"1.0.3\",\n    \"js-yaml\": \"tangrams/js-yaml#read-only\",\n    \"jszip\": \"tangrams/jszip#read-only\",\n    \"pbf\": \"3.1.0\",\n    \"strip-comments\": \"0.3.2\",\n    \"topojson-client\": \"tangrams/topojson-client#read-only\"\n  },\n  \"devDependencies\": {\n    \"babelify\": \"7.3.0\",\n    \"babel-preset-es2015\": \"6.16.0\",\n    \"browserify\": \"14.4.0\",\n    \"browserify-derequire\": \"0.9.4\",\n    \"budo\": \"10.0.3\",\n    \"chai\": \"1.9.2\",\n    \"chai-as-promised\": \"4.1.1\",\n    \"core-js\": \"2.4.1\",\n    \"glob\": \"4.0.6\",\n    \"jshint\": \"2.9.4\",\n    \"karma\": \"1.5.0\",\n    \"karma-browserify\": \"5.1.1\",\n    \"karma-chrome-launcher\": \"2.0.0\",\n    \"karma-mocha\": \"0.1.9\",\n    \"karma-mocha-reporter\": \"1.0.0\",\n    \"karma-sauce-launcher\": \"tangrams/karma-sauce-launcher#firefox-profiles3\",\n    \"karma-sinon\": \"1.0.4\",\n    \"mapstraction\": \"1.0.1\",\n    \"mocha\": \"1.21.4\",\n    \"sinon\": \"1.10.3\",\n    \"through2\": \"2.0.3\",\n    \"uglify-js\": \"2.8.29\",\n    \"yargs\": \"1.3.2\"\n  }\n}\n");
 var version = void 0;
 exports.default = version = 'v' + pkg.version;
 
@@ -47089,5 +47331,6 @@ var View = function () {
 exports.default = View;
 
 },{"./camera":199,"./geo":200,"./tile":251,"./utils/log":259,"./utils/subscribe":265,"./utils/utils":269}]},{},[225])(225)
-});})();
+});
+})();
 //# sourceMappingURL=tangram.debug.js.map
